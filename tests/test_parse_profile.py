@@ -108,6 +108,22 @@ class ProfileStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile.validate()
 
+    def test_rejects_bad_fodder(self):
+        profile = sample_profile()
+        profile.fodder_priority = "discarded"
+        with self.assertRaises(ValueError):
+            profile.validate()
+
+    def test_c4_defaults(self):
+        farm = FarmConfig()
+        self.assertEqual((farm.c4_target, farm.c4_batch), (30, 10))
+
+    def test_rejects_max_rounds_below_batch(self):
+        profile = sample_profile()
+        profile.farm.c4_max_rounds = 5
+        with self.assertRaises(ValueError):
+            profile.validate()
+
     def test_missing_profile(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(FileNotFoundError):

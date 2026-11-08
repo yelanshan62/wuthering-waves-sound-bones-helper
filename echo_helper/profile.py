@@ -15,12 +15,21 @@ STAMINA_MODES = {
 }
 
 FODDER_PRIORITIES = {
-    "material": "优先用密音筒",
-    "echo": "优先用已废弃的声骸",
+    "echo": "强化材料和声骸（没上锁的声骸都能吃）",
+    "material": "仅强化材料（只用密音筒）",
 }
 
 C4_TELEPORTS = ("Weekly Challenge", "Boss Challenge", "Special Nightmare")
+C4_TELEPORT_LABELS = {
+    "Weekly Challenge": "周常挑战",
+    "Boss Challenge": "首领挑战",
+    "Special Nightmare": "梦魇首领",
+}
 C4_BOSS_LEVELS = ("50", "60", "70", "80", "90")
+
+# 毕业声骸数达到 GRADUATE_ASK_AT 时暂停询问，继续则做到 GRADUATE_STOP_AT 结束。
+GRADUATE_ASK_AT = 2
+GRADUATE_STOP_AT = 4
 
 
 @dataclass
@@ -32,7 +41,9 @@ class FarmConfig:
     c4_teleport: str = "Boss Challenge"
     c4_index: int = 1
     c4_boss_level: str = "80"
-    c4_count: int = 20
+    c4_target: int = 30
+    c4_batch: int = 10
+    c4_max_rounds: int = 300
 
     def validate(self):
         if self.tacet_index < 1:
@@ -45,8 +56,12 @@ class FarmConfig:
             raise ValueError("C4 Boss 序号从 1 开始")
         if self.c4_boss_level not in C4_BOSS_LEVELS:
             raise ValueError(f"Boss 等级只能是 {C4_BOSS_LEVELS}")
-        if self.c4_count < 1:
-            raise ValueError("C4 刷取次数至少 1 次")
+        if self.c4_target < 1:
+            raise ValueError("C4 目标数量至少 1 个")
+        if self.c4_batch < 1:
+            raise ValueError("每批刷取轮数至少 1 轮")
+        if self.c4_max_rounds < self.c4_batch:
+            raise ValueError("C4 最多刷取轮数不能少于每批轮数")
 
 
 @dataclass
@@ -56,7 +71,7 @@ class Profile:
     main_stats: dict[int, list[str]]
     required: list[str]
     optional: list[str] = field(default_factory=list)
-    fodder_priority: str = "material"
+    fodder_priority: str = "echo"
     farm: FarmConfig = field(default_factory=FarmConfig)
 
     def validate(self):
@@ -73,7 +88,7 @@ class Profile:
         if not any(self.main_stats.get(c) for c in COSTS):
             raise ValueError("至少要给一个 COST 选主词条")
         if self.fodder_priority not in FODDER_PRIORITIES:
-            raise ValueError(f"喂料优先级只能是 {list(FODDER_PRIORITIES)}")
+            raise ValueError(f"喂料方式只能是 {list(FODDER_PRIORITIES)}")
         self.substat_rule()
         self.farm.validate()
 
@@ -91,14 +106,18 @@ class Profile:
     @classmethod
     def from_json(cls, text: str) -> "Profile":
         data = json.loads(text)
+        try:
+            farm = FarmConfig(**data["farm"])
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"刷取设置格式不对，请在软件里重新保存这个方案: {e}") from e
         profile = cls(
             name=data["name"],
             sonata_set=data["sonata_set"],
             main_stats={int(k): list(v) for k, v in data["main_stats"].items()},
             required=list(data["required"]),
             optional=list(data.get("optional", [])),
-            fodder_priority=data.get("fodder_priority", "material"),
-            farm=FarmConfig(**data.get("farm", {})),
+            fodder_priority=data["fodder_priority"],
+            farm=farm,
         )
         profile.validate()
         return profile
@@ -121,6 +140,10 @@ def load_profile(name: str, folder: Path = PROFILES_DIR) -> Profile:
     if not path.is_file():
         raise FileNotFoundError(f"找不到角色方案: {path}")
     return Profile.from_json(path.read_text(encoding="utf-8"))
+
+
+def delete_profile(name: str, folder: Path = PROFILES_DIR):
+    profile_path(name, folder).unlink()
 
 
 def list_profiles(folder: Path = PROFILES_DIR) -> list[str]:
